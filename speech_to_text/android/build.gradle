@@ -28,13 +28,13 @@ android {
     compileSdkVersion 33
     namespace 'com.csdcorp.speech_to_text'
 
-    compileDebugKotlin{
-        jvmTarget = '1.8'
-    }
+    // compileDebugKotlin{
+    //     jvmTarget = '1.8'
+    // }
     
-    compileDebugJavaWithJavac{
-        jvmTarget = '1.8'
-    }
+    // compileDebugJavaWithJavac{
+    //     jvmTarget = '1.8'
+    // }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
