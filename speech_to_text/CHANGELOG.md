@@ -1,5 +1,89 @@
 # Changelog
 
+## 7.1.0
+
+### New
+* support for web search recognition type on Android thanks to @vongrad for the PR
+* example app improvements to expose more options, provide help, and improve behaviour 
+on smaller devices. 
+
+### Fix
+* on iOS there is a new bug in their speech recognition that resets the transcription after 
+a pause in the users' speech. This version attempts a mitigation by using meta information 
+from the recognizer to concatenate subsequent transcriptions so the whole is not lost. There
+are problems with this approach, notably extra capitalization and possibly incorrects spaces
+being added. The concatenated transcription is added as the first result but all other results 
+are still the same. See issue [#552](https://github.com/csdcorp/speech_to_text/issues/552) 
+for details. 
+
+## 7.0.0
+
+### New
+* support for speech recognition on MacOS
+* supports WASM compliation for web
+
+### Fix
+* Remove support for deprecated v1 Android registration [#545](https://github.com/csdcorp/speech_to_text/issues/545)
+* Update deprecated Android build settings
+* Improves handling of possible duplicates from the locales() method to ensure they are removed
+* Language codes are properly handled for on device recognition on Android
+
+## 6.6.2
+
+### New
+* on iOS now mixes audio with other uses to allow multiple audio plugins to coexist
+
+### Fix
+* Second iOS listen now starts faster
+
+## 6.6.1
+
+### New
+* More detailed error returns on iOS
+* Updated JS dependency to 0.7.1 (would it kill you to release a 1.0 version?)
+
+## 6.6.0
+
+### New
+* `listen` now has a new `SpeechListenOptions listenOptions` parameter to specify the recognizer 
+options for the listen session. Some of the separate parameters have been deprecated as a 
+result. See the `listen` method for documentation. 
+*  `SpeechListenOptions.enableHapticFeedback` is a new option which allows haptic feedback during
+speech recognition on iOS. Usually haptics are disabled to avoid interfering with the microphone. 
+* `SpeechListenOptions.autoPunctuation` is a new option which turns on automatic punction inference 
+during speech recognition on iOS. 
+
+## 6.5.1
+
+### Fix
+* Removed BLUETOOTH_CONNECT permission from the plugin Android manifest, should be in apps
+
+## 6.5.0
+
+### New
+* `SpeechToText.webDoNotAggregate` option for use in the `option`
+parameter of the `initialize` method. This can be used to change the 
+behaviour on some browsers that implement the speech API differently. 
+Test the user agent to decided whether to set this option. Currently 
+it seems to be required on mobile Android to prevent duplicate results. 
+
+## 6.4.1
+
+### Fix
+* Removed incorrect MODIFY_PHONE_STATE permission from Android manifest
+
+## 6.4.0
+
+### Fix
+* Fix web handling of alternates and multiple phrases was incorrect. Before this change 
+multiple phrases were being seen as alternates. This properly combines those phrases into 
+a single set of recognized words and produces alternates as appropriate. 
+
+* Android 33+ now returns a valid list from `locales`. It returns the supported on device 
+languages. This is (probably) smaller than the full list of online languages but better than 
+the current list that only has the default language in it. It also seems to be the only 
+option that's available.
+
 ## 6.3.0
 
 ### New

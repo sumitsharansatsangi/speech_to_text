@@ -1,0 +1,2 @@
+/home/sumit/StudioProjects/speech_to_text/speech_to_text/example/android/app/.cxx/Debug/7f3m6f3p/x86/CMakeFiles/edit_cache.dir
+/home/sumit/StudioProjects/speech_to_text/speech_to_text/example/android/app/.cxx/Debug/7f3m6f3p/x86/CMakeFiles/rebuild_cache.dir

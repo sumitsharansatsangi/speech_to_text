@@ -8,32 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text_platform_interface/speech_to_text_platform_interface.dart';
-
-/// Describes the goal of your speech recognition to the system.
-///
-/// Currently only supported on **iOS**.
-///
-/// See also:
-/// * https://developer.apple.com/documentation/speech/sfspeechrecognitiontaskhint
-enum ListenMode {
-  /// The device default.
-  deviceDefault,
-
-  /// When using captured speech for text entry.
-  ///
-  /// Use this when you are using speech recognition for a task that's similar to the keyboard's built-in dictation function.
-  dictation,
-
-  /// When using captured speech to specify search terms.
-  ///
-  /// Use this when you are using speech recognition to identify search terms.
-  search,
-
-  /// When using captured speech for short, confirmation-style requests.
-  ///
-  /// Use this when you are using speech recognition to handle confirmation commands, such as "yes", "no" or "maybe".
-  confirmation,
-}
+export 'package:speech_to_text_platform_interface/speech_to_text_platform_interface.dart'
+    show ListenMode, SpeechConfigOption, SpeechListenOptions;
 
 /// A single locale with a [name], localized to the current system locale,
 /// and a [localeId] which can be used in the [SpeechToText.listen] method to choose a
@@ -43,6 +19,15 @@ class LocaleName {
   final String name;
 
   LocaleName(this.localeId, this.name);
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is LocaleName && localeId == other.localeId;
+  }
+
+  @override
+  int get hashCode => localeId.hashCode;
 }
 
 /// Notified as words are recognized with the current set of recognized words.
@@ -85,6 +70,14 @@ typedef SpeechErrorListener = void Function(
 ///
 /// See the [onStatus] argument on the [SpeechToText.initialize] method for use.
 typedef SpeechStatusListener = void Function(String status);
+
+/// Aggregates multiple phrases into a single result. This is used when
+/// the platform returns multiple phrases for a single utterance. The default
+/// behaviour is to concatenate the phrases into a single result with spaces
+/// separating the phrases and no change to capitalization. This can
+/// be overridden to provide a different aggregation strategy.
+/// see [_defaultPhraseAggregator] for the default implementation.
+typedef SpeechPhraseAggregator = String Function(List<String> phrases);
 
 /// Notified when the sound level changes during a listen method.
 ///
@@ -154,6 +147,16 @@ class SpeechToText {
   static final SpeechConfigOption iosNoBluetooth =
       SpeechConfigOption('ios', 'noBluetooth', true);
 
+  /// On some mobile web browsers, notably Chrome on Android, the speech
+  /// results behave differently. The default behaviour is to aggregate
+  /// separate phrases into a single result and return it. On
+  /// Chrome Android that approach creates duplicates so this option
+  /// can be used to disable the aggregation and return just the expected
+  /// result. You will need to test the user agent of the browser to
+  /// decide whether to use this option.
+  static final SpeechConfigOption webDoNotAggregate =
+      SpeechConfigOption('web', 'aggregate', false);
+
   static final SpeechToText _instance = SpeechToText.withMethodChannel();
   bool _initWorked = false;
 
@@ -200,6 +203,13 @@ class SpeechToText {
   SpeechErrorListener? errorListener;
   SpeechStatusListener? statusListener;
   SpeechSoundLevelChange? _soundLevelChange;
+
+  /// This overrides the default phrase aggregator to allow for
+  /// different strategies for aggregating multiple phrases into
+  /// a single result. This is used when the platform unexpectedly
+  /// returns multiple phrases for a single utterance. Currently
+  /// this happens only due to a bug in iOS 17.5/18
+  SpeechPhraseAggregator? unexpectedPhraseAggregator;
 
   factory SpeechToText() => _instance;
 
@@ -383,10 +393,16 @@ class SpeechToText {
   /// are recognized.
   ///
   /// [listenFor] sets the maximum duration that it will listen for, after
-  /// that it automatically stops the listen for you.
+  /// that it automatically stops the listen for you. The system may impose
+  /// a shorter maximum listen due to resource limitations or other reasons.
+  /// The plugin ensures that listening is no longer than this but it may be
+  /// shorter.
   ///
   /// [pauseFor] sets the maximum duration of a pause in speech with no words
-  /// detected, after that it automatically stops the listen for you.
+  /// detected, after that it automatically stops the listen for you. On some
+  /// systems, notably Android, there is a system imposed pause of from one to
+  /// three seconds that cannot be overridden. The plugin ensures that the
+  /// pause is no longer than the pauseFor value but it may be shorter.
   ///
   /// [localeId] is an optional locale that can be used to listen in a language
   /// other than the current system default. See [locales] to find the list of
@@ -403,32 +419,43 @@ class SpeechToText {
   /// called from the error handler.
   ///
   /// [partialResults] if true the listen reports results as they are recognized,
-  /// when false only final results are reported. Defaults to true.
+  /// when false only final results are reported. Defaults to true. Deprecated
+  ///  use [listenOptions.partialResults] instead.
   ///
   /// [onDevice] if true the listen attempts to recognize locally with speech never
   /// leaving the device. If it cannot do this the listen attempt will fail. This is
   /// usually only needed for sensitive content where privacy or security is a concern.
+  /// Deprecated use [listenOptions.onDevice] instead.
   ///
   /// [listenMode] tunes the speech recognition engine to expect certain
   /// types of spoken content. It defaults to [ListenMode.confirmation] which
   /// is the most common use case, words or short phrases to confirm a command.
   /// [ListenMode.dictation] is for longer spoken content, sentences or
   /// paragraphs, while [ListenMode.search] expects a sequence of search terms.
+  /// Deprecated use [listenOptions.listenMode] instead.
   ///
   /// [sampleRate] optional for compatibility with certain iOS devices, some devices
   /// crash with `sampleRate != device's supported sampleRate`, try 44100 if seeing
   /// crashes.
+  /// Deprecated use [listenOptions.sampleRate] instead.
+  ///
+  /// [listenOptions] used to specify the options to use for the listen
+  /// session. See [SpeechListenOptions] for details.
   Future listen(
       {SpeechResultListener? onResult,
       Duration? listenFor,
       Duration? pauseFor,
       String? localeId,
       SpeechSoundLevelChange? onSoundLevelChange,
+      @Deprecated('Use SpeechListenOptions.cancelOnError instead')
       cancelOnError = false,
+      @Deprecated('Use SpeechListenOptions.partialResults instead')
       partialResults = true,
-      onDevice = false,
+      @Deprecated('Use SpeechListenOptions.onDevice instead') onDevice = false,
+      @Deprecated('Use SpeechListenOptions.listenMode instead')
       ListenMode listenMode = ListenMode.confirmation,
-      sampleRate = 0}) async {
+      @Deprecated('Use SpeechListenOptions.sampleRate instead') sampleRate = 0,
+      SpeechListenOptions? listenOptions}) async {
     if (!_initWorked) {
       throw SpeechToTextNotInitializedException();
     }
@@ -436,7 +463,7 @@ class SpeechToText {
     _lastRecognized = '';
     _userEnded = false;
     _lastSpeechResult = null;
-    _cancelOnError = cancelOnError;
+    _cancelOnError = listenOptions?.cancelOnError ?? cancelOnError;
     _recognized = false;
     _notifiedFinal = false;
     _notifiedDone = false;
@@ -445,13 +472,17 @@ class SpeechToText {
     _partialResults = partialResults;
     _notifyFinalTimer?.cancel();
     _notifyFinalTimer = null;
-    try {
-      var started = await SpeechToTextPlatform.instance.listen(
+    final usedOptions = listenOptions ??
+        SpeechListenOptions(
           partialResults: partialResults || null != pauseFor,
           onDevice: onDevice,
-          listenMode: listenMode.index,
+          listenMode: listenMode,
           sampleRate: sampleRate,
-          localeId: localeId);
+          cancelOnError: cancelOnError,
+        );
+    try {
+      var started = await SpeechToTextPlatform.instance
+          .listen(localeId: localeId, options: usedOptions);
       if (started) {
         _listenStartedAt = clock.now().millisecondsSinceEpoch;
         _lastSpeechEventAt = _listenStartedAt;
@@ -558,6 +589,11 @@ class SpeechToText {
   /// identifier for the locale as well as a name for
   /// display. The name is localized for the system locale on
   /// the device.
+  ///
+  /// Android: The list of languages is based on the locales supported by
+  /// the on device recognizer. This list may not be the complete list of
+  /// languages available for online recognition. Unfortunately there is no
+  /// way to get the list of languages supported by the online recognizer.
   Future<List<LocaleName>> locales() async {
     final locales = await SpeechToTextPlatform.instance.locales();
     var filteredLocales = locales
@@ -569,6 +605,7 @@ class SpeechToText {
           return LocaleName(components[0], components[1]);
         })
         .where((item) => item != null)
+        .toSet()
         .toList()
         .cast<LocaleName>();
     if (filteredLocales.isNotEmpty) {
@@ -593,7 +630,27 @@ class SpeechToText {
     // print('onTextRecognition');
     Map<String, dynamic> resultMap = jsonDecode(resultJson);
     var speechResult = SpeechRecognitionResult.fromJson(resultMap);
+    speechResult = _checkAggregates(speechResult);
     _notifyResults(speechResult);
+  }
+
+  /// Checks the result for multiple phrases and aggregates them if needed.
+  /// Returns a new result with the aggregated phrases.
+  SpeechRecognitionResult _checkAggregates(SpeechRecognitionResult result) {
+    var alternates = <SpeechRecognitionWords>[];
+    for (var alternate in result.alternates) {
+      if (alternate.recognizedPhrases != null) {
+        final aggregated = (unexpectedPhraseAggregator ??
+            _defaultPhraseAggregator)(alternate.recognizedPhrases!);
+        final aggregatedWords = SpeechRecognitionWords(
+            aggregated, alternate.recognizedPhrases, alternate.confidence);
+        alternates.add(aggregatedWords);
+      } else {
+        alternates.add(alternate);
+      }
+      // print('  ${alternate.recognizedWords} ${alternate.confidence}');
+    }
+    return SpeechRecognitionResult(alternates, result.finalResult);
   }
 
   void _onFinalTimeout() {
@@ -692,6 +749,10 @@ class SpeechToText {
     _notifyFinalTimer?.cancel();
     _notifyFinalTimer = null;
     _listenTimer = null;
+  }
+
+  String _defaultPhraseAggregator(List<String> phrases) {
+    return phrases.join(' ');
   }
 }
 

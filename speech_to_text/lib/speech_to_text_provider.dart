@@ -5,7 +5,6 @@ import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_event.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
-import 'package:speech_to_text_platform_interface/speech_to_text_platform_interface.dart';
 
 /// Simplifies interaction with [SpeechToText] by handling all the callbacks and notifying
 /// listeners as events happen.
@@ -15,7 +14,7 @@ import 'package:speech_to_text_platform_interface/speech_to_text_platform_interf
 /// var speechProvider = SpeechToTextProvider( SpeechToText());
 /// var available = await speechProvider.initialize();
 /// StreamSubscription<SpeechRecognitionEvent> _subscription;
-/// _subscription = speechProvider.recognitionController.stream.listen((recognitionEvent) {
+/// _subscription = speechProvider.stream.listen((recognitionEvent) {
 ///   if (recognitionEvent.eventType == SpeechRecognitionEventType.finalRecognitionEvent )  {
 ///       print("I heard: ${recognitionEvent.recognitionResult.recognizedWords}");
 ///     }
@@ -140,27 +139,26 @@ class SpeechToTextProvider extends ChangeNotifier {
       ListenMode listenMode = ListenMode.confirmation}) {
     _lastLevel = 0;
     _lastResult = null;
+    final options = SpeechListenOptions(
+        partialResults: partialResults,
+        onDevice: onDevice,
+        cancelOnError: true,
+        listenMode: listenMode);
     if (soundLevel) {
       _speechToText.listen(
-          partialResults: partialResults,
-          onDevice: onDevice,
           listenFor: listenFor,
           pauseFor: pauseFor,
-          cancelOnError: true,
           onResult: _onListenResult,
           onSoundLevelChange: _onSoundLevelChange,
           localeId: localeId,
-          listenMode: listenMode);
+          listenOptions: options);
     } else {
       _speechToText.listen(
-          partialResults: partialResults,
-          onDevice: onDevice,
           listenFor: listenFor,
           pauseFor: pauseFor,
-          cancelOnError: true,
           onResult: _onListenResult,
           localeId: localeId,
-          listenMode: listenMode);
+          listenOptions: options);
     }
   }
 

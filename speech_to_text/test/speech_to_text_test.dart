@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:mockito/mockito.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -363,6 +365,38 @@ void main() {
       expect(speech.lastRecognizedWords,
           TestSpeechChannelHandler.secondRecognizedWords);
     });
+    test('aggregates phrases if provided', () async {
+      await speech.initialize();
+      await speech.listen(onResult: listener.onSpeechResult);
+      final resultWithAggregaes = SpeechRecognitionResult([
+        TestSpeechChannelHandler.firstPhrases,
+      ], false);
+      testPlatform.onTextRecognition!(jsonEncode(resultWithAggregaes.toJson()));
+      expect(listener.speechResults, 1);
+      expect(
+        listener.results.first.recognizedWords,
+        TestSpeechChannelHandler.firstAggregatePhrases,
+      );
+      expect(speech.lastRecognizedWords,
+          TestSpeechChannelHandler.firstAggregatePhrases);
+    });
+    test('uses custom aggregator if provided', () async {
+      await speech.initialize();
+      speech.unexpectedPhraseAggregator = (phrases) => phrases.join('. ');
+      await speech.listen(onResult: listener.onSpeechResult);
+      final resultWithAggregaes = SpeechRecognitionResult([
+        TestSpeechChannelHandler.firstPhrases,
+      ], false);
+      testPlatform.onTextRecognition!(jsonEncode(resultWithAggregaes.toJson()));
+      expect(listener.speechResults, 1);
+      final expectedAggregate =
+          '${TestSpeechChannelHandler.firstRecognizedWords}. ${TestSpeechChannelHandler.secondRecognizedWords}';
+      expect(
+        listener.results.first.recognizedWords,
+        expectedAggregate,
+      );
+      expect(speech.lastRecognizedWords, expectedAggregate);
+    });
   });
 
   group('status callback', () {
@@ -481,7 +515,8 @@ void main() {
     test('stops listening on permanent if cancel explicitly requested',
         () async {
       await speech.initialize(onError: listener.onSpeechError);
-      await speech.listen(cancelOnError: true);
+      await speech.listen(
+          listenOptions: SpeechListenOptions(cancelOnError: true));
       testPlatform.onStatus!(SpeechToText.listeningStatus);
       testPlatform.onError!(TestSpeechChannelHandler.permanentErrorJson);
       expect(speech.isListening, isFalse);
@@ -498,7 +533,8 @@ void main() {
     });
     test('Error still sent after implicit cancel', () async {
       await speech.initialize(onError: listener.onSpeechError);
-      await speech.listen(cancelOnError: true);
+      await speech.listen(
+          listenOptions: SpeechListenOptions(cancelOnError: true));
       testPlatform.onError!(TestSpeechChannelHandler.permanentErrorJson);
       testPlatform.onError!(TestSpeechChannelHandler.permanentErrorJson);
       expect(speech.isListening, isFalse);
@@ -507,31 +543,40 @@ void main() {
     });
     test('Error status cleared on next listen', () async {
       await speech.initialize(onError: listener.onSpeechError);
-      await speech.listen(cancelOnError: true);
+      await speech.listen(
+          listenOptions: SpeechListenOptions(cancelOnError: true));
       testPlatform.onError!(TestSpeechChannelHandler.permanentErrorJson);
       expect(speech.isListening, isFalse);
-      await speech.listen(cancelOnError: true);
+      await speech.listen(
+          listenOptions: SpeechListenOptions(cancelOnError: true));
       await speech.stop();
       expect(speech.hasError, isFalse);
     });
   });
 
   group('locales', () {
-    test('fails with exception if not initialized', () async {
+    test('allows call even if not initialized', () async {
       try {
-        await speech.locales();
-        fail('Expected an exception.');
+        testPlatform.localesResult.addAll([
+          TestSpeechChannelHandler.locale1,
+          TestSpeechChannelHandler.locale2
+        ]);
+        final locales = await speech.locales();
+        expect(locales, hasLength(2));
       } on SpeechToTextNotInitializedException {
-        // This is a good result
+        fail('Should not have thrown');
       }
     });
-    test('system locale null if not initialized', () async {
-      LocaleName? current;
+    test('system locale first even if not initialized', () async {
       try {
-        current = await speech.systemLocale();
-        fail('Expected an exception.');
+        testPlatform.localesResult.addAll([
+          TestSpeechChannelHandler.locale1,
+          TestSpeechChannelHandler.locale2
+        ]);
+        var current = await speech.systemLocale();
+        expect(current?.localeId, TestSpeechChannelHandler.localeId1);
       } on SpeechToTextNotInitializedException {
-        expect(current, isNull);
+        fail('Should not have thrown');
       }
     });
     test('handles an empty list', () async {
@@ -544,6 +589,20 @@ void main() {
       await speech.initialize();
       testPlatform.localesResult.addAll(
           [TestSpeechChannelHandler.locale1, TestSpeechChannelHandler.locale2]);
+      var localeNames = await speech.locales();
+      expect(localeNames, hasLength(2));
+      expect(localeNames[0].localeId, TestSpeechChannelHandler.localeId1);
+      expect(localeNames[0].name, TestSpeechChannelHandler.name1);
+      expect(localeNames[1].localeId, TestSpeechChannelHandler.localeId2);
+      expect(localeNames[1].name, TestSpeechChannelHandler.name2);
+    });
+    test('deduplicates returned locales', () async {
+      await speech.initialize();
+      testPlatform.localesResult.addAll([
+        TestSpeechChannelHandler.locale1,
+        TestSpeechChannelHandler.locale2,
+        TestSpeechChannelHandler.locale1
+      ]);
       var localeNames = await speech.locales();
       expect(localeNames, hasLength(2));
       expect(localeNames[0].localeId, TestSpeechChannelHandler.localeId1);

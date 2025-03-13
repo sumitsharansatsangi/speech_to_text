@@ -1,26 +1,43 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:html' as html;
-import 'dart:js_util' as js_util;
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
+import 'package:web/web.dart' as web;
+import 'dart:math';
 
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
+import 'package:speech_to_text/balanced_alternates.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text_platform_interface/speech_to_text_platform_interface.dart';
+
+// TODO: Workaround to fix SpeechRecognition in release mode. Remove this when
+// are fix (#276)[https://github.com/dart-lang/web/issues/276].
+@JS('webkitSpeechRecognition')
+extension type _SpeechRecognition._(web.SpeechRecognition _)
+    implements web.SpeechRecognition {
+  external factory _SpeechRecognition();
+}
 
 /// Web implementation of the SpeechToText platform interface. This supports
 /// the speech to text functionality running in web browsers that have
 /// SpeechRecognition support.
 class SpeechToTextPlugin extends SpeechToTextPlatform {
-  html.SpeechRecognition? _webSpeech;
+  web.SpeechRecognition? _webSpeech;
   static const _doneNoResult = 'doneNoResult';
   bool _resultSent = false;
   bool _doneSent = false;
+  bool _aggregateResults = true;
 
   /// Registers this class as the default instance of [SpeechToTextPlatform].
   static void registerWith(Registrar registrar) {
     SpeechToTextPlatform.instance = SpeechToTextPlugin();
   }
+
+  /// Checks if this SpeechRecognition is supported on the current platform.
+  static bool get supported =>
+      web.window.hasProperty('SpeechRecognition'.toJS).toDart ||
+      web.window.hasProperty('webkitSpeechRecognition'.toJS).toDart;
 
   /// Returns true if the user has already granted permission to access the
   /// microphone, does not prompt the user.
@@ -32,7 +49,7 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
   /// denied them permission in the past.
   @override
   Future<bool> hasPermission() async {
-    return html.SpeechRecognition.supported;
+    return supported;
   }
 
   /// Initialize speech recognition services, returns true if
@@ -49,23 +66,28 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
   @override
   Future<bool> initialize(
       {debugLogging = false, List<SpeechConfigOption>? options}) async {
-    if (!html.SpeechRecognition.supported) {
+    if (!supported) {
       var error = SpeechRecognitionError('not supported', true);
       onError?.call(jsonEncode(error.toJson()));
       return false;
     }
     var initialized = false;
     try {
-      _webSpeech = html.SpeechRecognition();
+      _webSpeech = _SpeechRecognition();
+
       if (null != _webSpeech) {
-        _webSpeech!.onError.listen((error) => _onError(error));
-        _webSpeech!.onStart.listen((startEvent) => _onSpeechStart(startEvent));
-        _webSpeech!.onSpeechStart
-            .listen((startEvent) => _onSpeechStart(startEvent));
-        _webSpeech!.onEnd.listen((endEvent) => _onSpeechEnd(endEvent));
-        // _webSpeech!.onSpeechEnd.listen((endEvent) => _onSpeechEnd(endEvent));
-        _webSpeech!.onNoMatch
-            .listen((noMatchEvent) => _onNoMatch(noMatchEvent));
+        _aggregateResults =
+            BalancedAlternates.isAggregateResultsEnabled(options);
+
+        _webSpeech?.onerror = _onError.toJS;
+
+        _webSpeech?.onstart = _onSpeechStart.toJS;
+
+        _webSpeech?.onspeechstart = _onSpeechStart.toJS;
+
+        _webSpeech?.onend = _onSpeechEnd.toJS;
+
+        _webSpeech?.onnomatch = _onNoMatch.toJS;
         initialized = true;
       }
     } finally {
@@ -137,14 +159,15 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
   @override
   Future<bool> listen(
       {String? localeId,
-      partialResults = true,
-      onDevice = false,
-      int listenMode = 0,
-      sampleRate = 0}) async {
+      @deprecated partialResults = true,
+      @deprecated onDevice = false,
+      @deprecated int listenMode = 0,
+      @deprecated sampleRate = 0,
+      SpeechListenOptions? options}) async {
     if (null == _webSpeech) return false;
-    _webSpeech!.onResult.listen((speechEvent) => _onResult(speechEvent));
-    _webSpeech!.interimResults = partialResults;
-    _webSpeech!.continuous = partialResults;
+    _webSpeech!.onresult = _onResult.toJS;
+    _webSpeech!.interimResults = options?.partialResults ?? partialResults;
+    _webSpeech!.continuous = options?.partialResults ?? partialResults;
     if (null != localeId) {
       _webSpeech!.lang = localeId;
     }
@@ -167,24 +190,22 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
     return availableLocales;
   }
 
-  void _onError(html.SpeechRecognitionError event) {
-    if (null != event.error) {
-      var error = SpeechRecognitionError(event.error!, false);
-      onError?.call(jsonEncode(error.toJson()));
-      _sendDone(_doneNoResult);
-    }
+  void _onError(web.SpeechRecognitionErrorEvent event) {
+    var error = SpeechRecognitionError(event.error, false);
+    onError?.call(jsonEncode(error.toJson()));
+    _sendDone(_doneNoResult);
   }
 
-  void _onSpeechStart(html.Event event) {
+  void _onSpeechStart(web.Event event) {
     onStatus?.call('listening');
   }
 
-  void _onSpeechEnd(html.Event event) {
+  void _onSpeechEnd(web.Event event) {
     onStatus?.call('notListening');
     _sendDone(_resultSent ? 'done' : _doneNoResult);
   }
 
-  void _onNoMatch(html.Event event) {
+  void _onNoMatch(web.Event event) {
     _sendDone(_doneNoResult);
   }
 
@@ -194,26 +215,34 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
     _doneSent = true;
   }
 
-  void _onResult(html.SpeechRecognitionEvent event) {
+  void _onResult(web.SpeechRecognitionEvent event) {
     var isFinal = false;
     var recogResults = <SpeechRecognitionWords>[];
     var results = event.results;
-    if (null == results) return;
-    for (var recognitionResult in results) {
-      if (null == recognitionResult.length || recognitionResult.length == 0) {
-        continue;
-      }
-      for (var altIndex = 0; altIndex < recognitionResult.length!; ++altIndex) {
-        var alt = js_util.callMethod(recognitionResult, 'item', [altIndex]);
+
+    final balanced = BalancedAlternates();
+    var resultIndex = 0;
+    var longestAlt = 0;
+    for (var i = 0; i < results.length; i++) {
+      final recognitionResult = results.item(i);
+
+      for (var altIndex = 0;
+          altIndex < (recognitionResult.length);
+          ++altIndex) {
+        longestAlt = max(longestAlt, altIndex);
+        final web.SpeechRecognitionAlternative? alt =
+            recognitionResult.item(altIndex);
+
         if (null == alt) continue;
-        String? transcript = js_util.getProperty(alt, 'transcript');
-        num? confidence = js_util.getProperty(alt, 'confidence');
-        if (null != transcript && null != confidence) {
-          recogResults
-              .add(SpeechRecognitionWords(transcript, confidence.toDouble()));
-        }
+
+        final transcript = alt.transcript;
+        final confidence = alt.confidence;
+
+        balanced.add(resultIndex, transcript, confidence.toDouble());
       }
+      ++resultIndex;
     }
+    recogResults = balanced.getAlternates(_aggregateResults);
     var result = SpeechRecognitionResult(recogResults, isFinal);
     onTextRecognition?.call(jsonEncode(result.toJson()));
     _resultSent = true;
